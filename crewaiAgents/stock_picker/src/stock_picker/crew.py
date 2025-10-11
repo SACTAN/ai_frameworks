@@ -1,12 +1,14 @@
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
-from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List
 
 from crewai_tools import SerperDevTool
 from pydantic import BaseModel, Field
 
 from .tools.push_tool import PushNotificationTool
+from crewai.memory import LongTermMemory, ShortTermMemory, EntityMemory
+from crewai.memory.storage.rag_storage import RAGStorage
+from crewai.memory.storage.ltm_sqlite_storage import LTMSQLiteStorage
 
 
 # If you want to run a snippet of code before or after the crew starts,
@@ -35,10 +37,6 @@ class TrendingCompanyResearchList(BaseModel):
     research_list: List[TrendingCompanyResearch] = Field(description="Comprehensive research on all trending companies")
 
 
-
-
-
-
 @CrewBase
 class StockPicker():
     """StockPicker crew"""
@@ -46,12 +44,6 @@ class StockPicker():
     agents_config = 'config/agents.yaml'
     tasks_config = 'config/tasks.yaml'
 
-    # Learn more about YAML configuration files here:
-    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
-    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-    
-    # If you would like to add tools to your agents, you can learn more about it here:
-    # https://docs.crewai.com/concepts/agents#agent-tools
     @agent
     def trending_company_finder(self) -> Agent:
         return Agent(config=self.agents_config['trending_company_finder'],
@@ -91,8 +83,6 @@ class StockPicker():
     @crew
     def crew(self) -> Crew:
         """Creates the StockPicker crew"""
-        # To learn how to add knowledge sources to your crew, check out the documentation:
-        # https://docs.crewai.com/concepts/knowledge#what-is-knowledge
         manager = Agent(config=self.agents_config["manager"], allow_delegation=True)
 
         return Crew(
@@ -101,5 +91,35 @@ class StockPicker():
             process=Process.sequential,
             manager_agent=manager,
             verbose=True,
+            long_term_memory=LongTermMemory(
+                storage=LTMSQLiteStorage(
+                    db_path="./memory/long_term_memory_storage.db"
+                )
+            ),
+            # Short-term memory for current context using RAG
+            short_term_memory=ShortTermMemory(
+                storage=RAGStorage(
+                    embedder_config={
+                        "provider": "openai",
+                        "config": {
+                            "model": 'text-embedding-3-small'
+                        }
+                    },
+                    type="short_term",
+                    path="./memory/"
+                )
+            ),  # Entity memory for tracking key information about entities
+            entity_memory=EntityMemory(
+                storage=RAGStorage(
+                    embedder_config={
+                        "provider": "openai",
+                        "config": {
+                            "model": 'text-embedding-3-small'
+                        }
+                    },
+                    type="short_term",
+                    path="./memory/"
+                )
+            ),
             # process=Process.hierarchical, # In case you wanna use that instead https://docs.crewai.com/how-to/Hierarchical/
         )
